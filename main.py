@@ -7,8 +7,11 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data.sampler import SubsetRandomSampler
+from torch.utils.data import DataLoader, ConcatDataset
+from torchvision.transforms import Compose 
 
 import os
+import random
 
 '''
 This code is adapted from two sources:
@@ -88,24 +91,37 @@ class Net(nn.Module):
         return x
 
 
-def train(args, model, device, train_loader, optimizer, epoch):
+# Define training and testing
+def train(model, device, train_loader, optimizer, epoch):
     '''
     This is your training function. When you call this function, the model is
     trained for 1 epoch.
     '''
     model.train()   # Set the model to training mode
+    total = 0
+    correct = 0
+    train_loss = 0
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()               # Clear the gradient
         output = model(data)                # Make predictions
         loss = F.nll_loss(output, target)   # Compute loss
+        train_loss += F.nll_loss(output, target, reduction='sum').item()
         loss.backward()                     # Gradient computation
         optimizer.step()                    # Perform a single optimization step
-        if batch_idx % args.log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+        # Compute accuracy
+        pred = output.argmax(dim=1, keepdim=True) # Predictions with max log-probability
+        total += len(data)
+        correct += pred.eq(target.view_as(pred)).sum().item()
+        if batch_idx % log_interval == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tAccuracy: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.sampler),
-                100. * batch_idx / len(train_loader), loss.item()))
-
+                100. * batch_idx / len(train_loader), loss.item(),
+                100. * correct / total))
+    train_loss /= total
+    accuracy = 100. * correct / total
+    print("Train Set Accuracy: ", accuracy)
+    return accuracy, loss
 
 def test(model, device, test_loader):
     model.eval()    # Set the model to inference mode
@@ -122,10 +138,11 @@ def test(model, device, test_loader):
             test_num += len(data)
 
     test_loss /= test_num
-
+    accuracy = 100. * correct / test_num
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        test_loss, correct, test_num,
-        100. * correct / test_num))
+        test_loss, correct, test_num, accuracy))
+    
+    return accuracy, test_loss
 
 
 def main():
@@ -188,20 +205,41 @@ def main():
 
         return
 
-    # Pytorch has default MNIST dataloader which loads data at each iteration
-    train_dataset = datasets.MNIST('../data', train=True, download=True,
-                transform=transforms.Compose([       # Data preprocessing
-                    transforms.ToTensor(),           # Add data augmentation here
-                    transforms.Normalize((0.1307,), (0.3081,))
-                ]))
+    # Define data augmentation
+    train_transform = Compose([
+        transforms.GaussianBlur(kernel_size=15, sigma=(0.1,0.5)),
+        transforms.ColorJitter(brightness=0.3, saturation=0.3, hue=0.2), 
+        transforms.RandomAffine(degrees=15, scale=(0.9,1.1)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=0.131, std=0.3085)
+    ])
 
+    # Load MNIST training and testing Dataset objects
+    train_dataset = datasets.MNIST('../data', train=True, download=True, transform=train_transform)
+
+    
     # You can assign indices for training/validation or use a random subset for
     # training by using SubsetRandomSampler. Right now the train and validation
     # sets are built from the same indices - this is bad! Change it so that
     # the training and validation sets are disjoint and have the correct relative sizes.
-    subset_indices_train = range(len(train_dataset))
-    subset_indices_valid = range(len(train_dataset))
+    #subset_indices_train = range(len(train_dataset))
+    #subset_indices_valid = range(len(train_dataset))
+    
+    # Create a validation set by sampling 15% of each digit class from training dataset
+    subset_indices_train = []
+    subset_indices_valid = []
+    labels = [train_dataset[row][1] for row in range(len(train_dataset))]
+    for digit in range(0, 10):
+        indices = list(filter(lambda x: labels[x] == digit, range(len(labels))))
+        # randomly sample 15% for validation, rest for train
+        random.shuffle(indices)
+        split = int(0.15*len(indices))
+        subset_indices_valid.extend(indices[:split])
+        subset_indices_train.extend(indices[split:])
 
+    # Ensure that split did not change total number of samples (ie duplicate or delete)
+    assert (len(subset_indices_valid) + len(subset_indices_train) == len(train_dataset))
+    
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size,
         sampler=SubsetRandomSampler(subset_indices_train)
@@ -221,16 +259,33 @@ def main():
     scheduler = StepLR(optimizer, step_size=args.step, gamma=args.gamma)
 
     # Training loop
+    train_acc, train_loss = [], []
+    valid_acc, valid_loss = [], []
     for epoch in range(1, args.epochs + 1):
-        train(args, model, device, train_loader, optimizer, epoch)
-        test(model, device, val_loader)
+        acc, loss = train(args, model, device, train_loader, optimizer, epoch)
+        train_acc.append(acc)
+        train_loss.append(loss)
+        acc, loss = test(model, device, val_loader)
+        valid_acc.append(acc)
+        valid_loss.append(loss)
         scheduler.step()    # learning rate scheduler
 
         # You may optionally save your model at each epoch here
-
+    
     if args.save_model:
         torch.save(model.state_dict(), "mnist_model.pt")
-
-
+    
+    # Plot loss and accuracy curves
+    fig, (ax1, ax2) = plt.subplots(figsize=(18, 5), ncols=2)
+    ax1.plot(range(1, epochs + 1), train_acc, label='Train Accuracy')
+    ax1.plot(range(1, epochs + 1), valid_acc, label='Validation Accuracy')
+    ax1.legend()
+    ax1.set_title('Accuracy vs. Epoch')
+    ax2.plot(range(1, epochs + 1), train_loss, label='Train Loss')
+    ax2.plot(range(1, epochs + 1), valid_loss, label='Validation Loss')
+    ax2.legend()
+    ax2.set_title('Loss vs. Epoch')
+    plt.show()
+    
 if __name__ == '__main__':
     main()
