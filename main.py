@@ -136,7 +136,6 @@ class Net(nn.Module):
         output = F.log_softmax(x, dim=1)
         return output
 
-
 # Define training and testing
 def train(model, device, train_loader, optimizer, epoch):
     '''
@@ -295,9 +294,10 @@ def main():
     )
 
     # Load your model [fcNet, ConvNet, Net]
-    model = Net().to(device)
-    lr = 0.001
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    # Custom Model
+	model = Net().to(device)
+	lr = 0.001
+	optimizer = optim.Adam(model.parameters(), lr=lr)
 
     print("Model Summary:")
     summary.summary(model, (1, 28, 28))
@@ -323,16 +323,16 @@ def main():
         torch.save(model.state_dict(), "mnist_model.pt")
     
     # Plot loss and accuracy curves
-    fig, (ax1, ax2) = plt.subplots(figsize=(18, 5), ncols=2)
-    ax1.plot(range(1, epochs + 1), train_acc, label='Train Accuracy')
-    ax1.plot(range(1, epochs + 1), valid_acc, label='Validation Accuracy')
-    ax1.legend()
-    ax1.set_title('Accuracy vs. Epoch')
-    ax2.plot(range(1, epochs + 1), train_loss, label='Train Loss')
-    ax2.plot(range(1, epochs + 1), valid_loss, label='Validation Loss')
-    ax2.legend()
-    ax2.set_title('Loss vs. Epoch')
-    plt.show()
+	fig, (ax1, ax2) = plt.subplots(figsize=(18, 5), ncols=2)
+	ax1.plot(range(1, len(train_acc) + 1), train_acc, label='Train Accuracy')
+	ax1.plot(range(1, len(valid_acc) + 1), valid_acc, label='Validation Accuracy')
+	ax1.legend()
+	ax1.set_title('Accuracy vs. Epoch')
+	ax2.plot(range(1, len(train_loss) + 1), train_loss, label='Train Loss')
+	ax2.plot(range(1, len(valid_loss) + 1), valid_loss, label='Validation Loss')
+	ax2.legend()
+	ax2.set_title('Loss vs. Epoch')
+	plt.show()
     
 if __name__ == '__main__':
     main()
