@@ -80,15 +80,61 @@ class ConvNet(nn.Module):
         return output
 
 
+# My Convolutional Neural Network (CNN) Model
+# Define Model using only...
+# Linear, Conv2d, MaxPool2d, AvgPool2d, ReLU, Softmax, BatchNorm2d, Dropout, Flatten
 class Net(nn.Module):
     '''
     Build the best MNIST classifier.
     '''
     def __init__(self):
         super(Net, self).__init__()
+        self.conv1 = nn.Sequential (
+            nn.Conv2d(in_channels=1, out_channels=128, kernel_size=(3,3), stride=1, padding=1),
+            nn.BatchNorm2d(128),
+            nn.Conv2d(128, 128, kernel_size=(3,3), stride=1, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(0.5),
+            nn.MaxPool2d(2, stride=2),
+            nn.Dropout(0.5)
+        )
+        self.conv2 = nn.Sequential (
+            nn.Conv2d(128, 128, kernel_size=(3,3), stride=1, padding=1),
+            nn.BatchNorm2d(128),
+            nn.Conv2d(128, 128, kernel_size=(3,3), stride=1, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(0.5),
+            nn.MaxPool2d(2, stride=2),
+            nn.Dropout(0.5)
+        )
+        self.conv3 = nn.Sequential (
+            nn.Conv2d(128, 1028, kernel_size=(3,3), stride=1, padding=1),
+            nn.BatchNorm2d(1028),
+            nn.Conv2d(1028, 1028, kernel_size=(3,3), stride=1, padding=1),
+            nn.BatchNorm2d(1028),
+            nn.ReLU(0.5),
+            nn.MaxPool2d(2, stride=2),
+            nn.Dropout(0.5)
+        )
+
+        self.fc1 = nn.Linear(1028*3*3, 4096)
+        self.fc2 = nn.Linear(4096, 4096)
+        self.fc3 = nn.Linear(4096, 1000)
 
     def forward(self, x):
-        return x
+        # input shape = (1, 28, 28)
+        x = self.conv1(x) # [(28−3)/1]+1 --> 6x6x32
+        x = self.conv2(x) # [(13-3)/1]+1 --> 11x11x32
+        x = self.conv3(x)
+        #x = self.conv4(x)
+
+        x = torch.flatten(x, 1) # 5x5x32 --> 800
+        x = self.fc1(x) # 200 --> 64
+        x = F.relu(x)
+        x = self.fc2(x) # 64 --> 10
+
+        output = F.log_softmax(x, dim=1)
+        return output
 
 
 # Define training and testing
@@ -207,8 +253,8 @@ def main():
 
     # Define data augmentation
     train_transform = Compose([
-        transforms.GaussianBlur(kernel_size=15, sigma=(0.1,0.5)),
-        transforms.ColorJitter(brightness=0.3, saturation=0.3, hue=0.2), 
+        transforms.GaussianBlur(kernel_size=15, sigma=(0.01,0.2)),
+        transforms.ColorJitter(brightness=0.1, saturation=0.1, hue=0.1), 
         transforms.RandomAffine(degrees=15, scale=(0.9,1.1)),
         transforms.ToTensor(),
         transforms.Normalize(mean=0.131, std=0.3085)
@@ -217,7 +263,6 @@ def main():
     # Load MNIST training and testing Dataset objects
     train_dataset = datasets.MNIST('../data', train=True, download=True, transform=train_transform)
 
-    
     # You can assign indices for training/validation or use a random subset for
     # training by using SubsetRandomSampler. Right now the train and validation
     # sets are built from the same indices - this is bad! Change it so that
@@ -250,10 +295,12 @@ def main():
     )
 
     # Load your model [fcNet, ConvNet, Net]
-    model = ConvNet().to(device)
+    model = Net().to(device)
+    lr = 0.001
+    optimizer = optim.Adam(model.parameters(), lr=lr)
 
-    # Try different optimzers here [Adam, SGD, RMSprop]
-    optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
+    print("Model Summary:")
+    summary.summary(model, (1, 28, 28))
 
     # Set your learning rate scheduler
     scheduler = StepLR(optimizer, step_size=args.step, gamma=args.gamma)
